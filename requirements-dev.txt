@@ -1,0 +1,8 @@
+# Development: runtime dependencies plus test and type-check tools.
+# Install: pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.*
+hypothesis==6.170.*
+mypy==2.4.*

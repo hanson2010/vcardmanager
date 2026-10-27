@@ -1,0 +1,2 @@
+# Test fixtures are real exports: keep their bytes (CRLF line endings, GBK encoding) exactly as they are.
+tests/fixtures/*.vcf -text

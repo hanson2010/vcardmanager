@@ -1,0 +1,7 @@
+# Runtime dependencies.
+# For development, use requirements-dev.txt instead.
+
+click==8.5.*
+phonenumbers==9.0.*
+pillow==13.0.*
+rapidfuzz==3.14.*
