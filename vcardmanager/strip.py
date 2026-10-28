@@ -1,4 +1,4 @@
-"""Remove properties by name pattern, optionally restricted by parameter values."""
+"""Remove properties by name pattern, optionally restricted by parameter values, and single TYPE values."""
 
 import re
 from collections import Counter
@@ -11,6 +11,8 @@ from vcardmanager.model import Property, VCard
 
 # a vCard without these is invalid; BEGIN, END and VERSION are written by the writer
 REQUIRED = frozenset({"FN"})
+# TYPE on these is the media type (JPEG); removing it would leave the data unreadable
+MEDIA_PROPERTIES = frozenset({"PHOTO", "LOGO", "SOUND", "KEY"})
 
 PRESETS: dict[str, dict[str, list[str]]] = {
     "minimal": {"keep": ["FN", "N", "TEL", "EMAIL"]},
@@ -50,6 +52,56 @@ class FieldPattern:
 def parse_patterns(texts: Iterable[str]) -> list[FieldPattern]:
     """Parse patterns; each text may hold several, separated by commas."""
     return [FieldPattern.parse(part) for text in texts for part in text.split(",") if part.strip()]
+
+
+@dataclass(frozen=True)
+class TypePattern:
+    """`EMAIL=INTERNET`, `*=PREF`: a TYPE value (glob) to remove from properties whose name matches a glob."""
+
+    name: str
+    value: str
+
+    @classmethod
+    def parse(cls, text: str) -> "TypePattern":
+        name, equals, value = text.partition("=")
+        if not equals or not name.strip() or not value.strip() or any(c in text for c in "[];:"):
+            raise ValueError(f"not a type pattern: {text!r} (use PROPERTY=TYPE, e.g. EMAIL=INTERNET or *=PREF)")
+        return cls(name.strip().upper(), value.strip().upper())
+
+    def matches(self, prop: Property, value: str) -> bool:
+        return fnmatchcase(prop.name, self.name) and fnmatchcase(value.strip().upper(), self.value)
+
+
+def parse_type_patterns(texts: Iterable[str]) -> list[TypePattern]:
+    """Parse type patterns; each text may hold several, separated by commas."""
+    return [TypePattern.parse(part) for text in texts for part in text.split(",") if part.strip()]
+
+
+def strip_types(card: VCard, patterns: Iterable[TypePattern]) -> tuple[VCard, int]:
+    """Return a copy of `card` without the matching TYPE values, and how many were removed.
+
+    The properties stay; one left without any type loses its TYPE parameter. The media type of PHOTO, LOGO,
+    SOUND and KEY is never removed.
+    """
+    patterns = list(patterns)
+    result = VCard(list(card.properties), card.source_version, card.source, list(card.warnings))
+    removed = 0
+    for index, prop in enumerate(result.properties):
+        types = prop.params.get("TYPE")
+        if not types or prop.name in MEDIA_PROPERTIES:
+            continue
+        values = [part for t in types for part in t.split(",") if part.strip()]  # `TYPE="INTERNET,WORK"`
+        kept = [t for t in values if not any(p.matches(prop, t) for p in patterns)]
+        if len(kept) == len(values):
+            continue
+        removed += len(values) - len(kept)
+        changed = prop.copy()  # the properties may be shared with `card`: do not change them in place
+        if kept:
+            changed.params["TYPE"] = kept
+        else:
+            del changed.params["TYPE"]
+        result.properties[index] = changed
+    return result, removed
 
 
 def _would_remove(name: str, fields: list[FieldPattern], keep: list[FieldPattern] | None) -> bool:

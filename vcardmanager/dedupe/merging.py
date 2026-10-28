@@ -152,6 +152,7 @@ def _set_best_name(merged: VCard, cards: Sequence[VCard], base: VCard) -> None:
         rebuilt.properties[1].components = ["", fn_value, "", "", ""]
         name_label(rebuilt, Context())
         name_split(rebuilt, Context())
+        fn.value = rebuilt.properties[0].value  # name-split may reorder FN, e.g. `Bob 张三` -> `张三 Bob`
         new_n = rebuilt.properties[1]
     else:  # not a person's name (e.g. an organisation): keep the N that came with this FN
         new_n = source.get("N") or (n if n is not None else Property("N", ""))

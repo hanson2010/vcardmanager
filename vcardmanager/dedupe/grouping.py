@@ -6,10 +6,12 @@ from dataclasses import dataclass, field
 
 from rapidfuzz.fuzz import token_sort_ratio
 
+from vcardmanager.dedupe.pinyin import han_pinyin_keys, latin_pinyin_keys
 from vcardmanager.keys import email_key, name_key, phone_key
 from vcardmanager.model import VCard
 
-MATCH_KINDS = ("phone", "email", "name")
+MATCH_KINDS = ("phone", "email", "name", "pinyin")
+DEFAULT_MATCH = ("phone", "email", "name")  # pinyin is asked for: many Chinese names share one spelling
 
 
 @dataclass
@@ -36,7 +38,7 @@ class _UnionFind:
 
 def find_duplicate_groups(
     cards: Sequence[VCard],
-    match: Iterable[str] = MATCH_KINDS,
+    match: Iterable[str] = DEFAULT_MATCH,
     *,
     name_threshold: int = 100,
     min_name_length: int = 5,
@@ -48,6 +50,7 @@ def find_duplicate_groups(
     Links are transitive: if A matches B and B matches C, all three are one group. Group cards never match.
     With `name_threshold` below 100, names whose token-sorted similarity reaches it also match, if both
     are at least `min_name_length` characters and start with the same character.
+    `pinyin` links a Chinese name to the same name in Latin letters (`陈磊` = `Lei Chen`); see `_pinyin_links`.
     """
     kinds = set(match)
     if unknown := kinds - set(MATCH_KINDS):
@@ -74,6 +77,8 @@ def find_duplicate_groups(
         for other in indexes[1:]:
             union.union(indexes[0], other)
             links.append((indexes[0], other, kind))
+    if "pinyin" in kinds:
+        links += _pinyin_links(cards, contacts, union)
     if "name" in kinds and name_threshold < 100:
         links += _fuzzy_name_links(cards, contacts, union, name_threshold, min_name_length)
 
@@ -88,6 +93,28 @@ def find_duplicate_groups(
         for root, indexes in sorted(members.items(), key=lambda item: item[1][0])
         if len(indexes) > 1
     ]
+
+
+def _pinyin_links(cards: Sequence[VCard], contacts: list[int], union: _UnionFind) -> list[tuple[int, int, str]]:
+    """Link Chinese names to Latin names with the same pinyin. A spelling that fits two different Chinese
+    names (`Lei Chen`: 陈磊, 陈雷) links nobody, as it cannot tell which one is meant."""
+    han: dict[str, list[int]] = defaultdict(list)
+    latin: dict[str, list[int]] = defaultdict(list)
+    for i in contacts:
+        for key in han_pinyin_keys(cards[i]):
+            han[key].append(i)
+        for key in latin_pinyin_keys(cards[i]):
+            latin[key].append(i)
+    links = []
+    for key in han.keys() & latin.keys():
+        if len({name_key(cards[i]) for i in han[key]}) > 1:
+            continue
+        for a in han[key]:
+            for b in latin[key]:
+                if union.find(a) != union.find(b):
+                    union.union(a, b)
+                    links.append((a, b, "pinyin"))
+    return links
 
 
 def _fuzzy_name_links(
@@ -110,7 +137,7 @@ def _fuzzy_name_links(
 
 def find_duplicates(
     cards: Sequence[VCard],
-    match: Iterable[str] = MATCH_KINDS,
+    match: Iterable[str] = DEFAULT_MATCH,
     *,
     name_threshold: int = 100,
     min_name_length: int = 5,

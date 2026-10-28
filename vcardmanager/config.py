@@ -10,7 +10,7 @@ import click
 OUTPUT_KEYS = {"version": "vcard_version", "line-ending": "line_ending"}
 WRITING_COMMANDS = frozenset({"merge", "split", "clean", "strip", "dedupe"})
 # options that only make sense on the command line
-_NOT_CONFIGURABLE = frozenset({"inputs", "output", "directory", "force", "rules", "help", "list_rules"})
+_NOT_CONFIGURABLE = frozenset({"inputs", "username", "directory", "force", "rules", "help", "list_rules"})
 
 
 class ConfigError(Exception):

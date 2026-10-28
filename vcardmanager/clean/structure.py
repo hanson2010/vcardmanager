@@ -1,6 +1,7 @@
 """Rules about text, parameters and property order."""
 
 import re
+import string
 import unicodedata
 
 from vcardmanager.clean.base import Context, is_text
@@ -9,6 +10,8 @@ from vcardmanager.model import STRUCTURED, Property, VCard
 
 _INVISIBLE = re.compile("[\u200b-\u200d\u2060\ufeff]")  # zero-width spaces and joiners, word joiner, BOM
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_ESCAPE = re.compile(r"\\(\\:|.)", re.DOTALL)  # `\\:` first: Google writes `https\\://`
+_NEEDLESS_ESCAPES = frozenset(string.punctuation) - set("\\,;")
 _TYPE_TOKEN = re.compile(r"^[A-Za-z0-9-]+$")
 _TYPE_ALIASES = {"MOBILE": "CELL", "IPHONE": "CELL"}
 
@@ -26,6 +29,20 @@ def fix_encoding(card: VCard, ctx: Context) -> None:
     for prop in card.properties:
         if is_text(prop):
             prop.raw = unicodedata.normalize("NFC", _CONTROL.sub("", _INVISIBLE.sub("", prop.raw)))
+
+
+def _drop_escape(match: re.Match[str]) -> str:
+    escaped = match[1]
+    if escaped == "\\:" or escaped in _NEEDLESS_ESCAPES:
+        return escaped[-1]
+    return match[0]
+
+
+def fix_escapes(card: VCard, ctx: Context) -> None:
+    """Remove backslashes before punctuation that needs none, such as `\\:`; keep `\\\\`, `\\,`, `\\;` and `\\n`."""
+    for prop in card.properties:
+        if "ENCODING" not in prop.params and "\\" in prop.raw:
+            prop.raw = _ESCAPE.sub(_drop_escape, prop.raw)
 
 
 def upgrade_version(card: VCard, ctx: Context) -> None:

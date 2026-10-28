@@ -3,5 +3,6 @@
 
 click==8.5.*
 phonenumbers==9.0.*
+pypinyin==0.55.*
 pillow==13.0.*
 rapidfuzz==3.14.*

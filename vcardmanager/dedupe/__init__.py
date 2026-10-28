@@ -2,7 +2,13 @@
 
 from collections.abc import Iterable, Sequence
 
-from vcardmanager.dedupe.grouping import MATCH_KINDS, DuplicateGroup, find_duplicate_groups, find_duplicates
+from vcardmanager.dedupe.grouping import (
+    DEFAULT_MATCH,
+    MATCH_KINDS,
+    DuplicateGroup,
+    find_duplicate_groups,
+    find_duplicates,
+)
 from vcardmanager.dedupe.merging import merge_group
 from vcardmanager.model import VCard
 
@@ -19,6 +25,7 @@ def apply_merges(cards: Sequence[VCard], groups: Iterable[Sequence[VCard]]) -> l
 
 
 __all__ = [
+    "DEFAULT_MATCH",
     "MATCH_KINDS",
     "DuplicateGroup",
     "apply_merges",

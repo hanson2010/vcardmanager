@@ -1,0 +1,59 @@
+# Default options for vcardmanager. Copy to rules.toml, uncomment what you need, and pass it with
+#   python -m vcardmanager <command> ... --rules rules.toml
+# Keys are the long option names without the leading dashes. Options on the command line win.
+# Inputs (files or a CardDAV address book URL), --username, -d/--directory and --force can only be given on the
+# command line; the CardDAV password is always asked for.
+
+# Every command that writes vCards (merge, split, clean, strip, dedupe)
+[output]
+# version = "3.0"                # 3.0 or 4.0
+# line-ending = "crlf"           # crlf or lf; vCard requires CRLF
+
+[merge]
+# encoding = "gbk"               # encoding of the input files (default: detect)
+# recursive = false              # also read vCard files in subdirectories
+# quiet = false                  # print only errors
+# verbose = false                # list every warning
+
+[split]
+# per-file = 500                 # give one of per-file, max-size, by
+# max-size = "1MB"
+# by = "group"                   # group, or a property such as ORG
+
+[clean]
+# backup = true                  # keep a copy, e.g. contacts_backup.vcf
+# region = "CN"                  # country for phone numbers without a country code
+# phone-format = "e164"          # e164, international or national
+# Rules (see `clean --list-rules`). Off by default: groups-to-categories, photo-embed.
+# On by default: fix-encoding, fix-escapes, upgrade-version, trim-whitespace, drop-empty, drop-extensions, email-lowercase,
+# phone-format, phone-type, type-normalize, dedupe-values, name-fill, name-label, name-prefix, name-split, name-case,
+# photo-compression, sort-properties.
+# enable = ["photo-embed"]
+# disable = ["drop-extensions", "name-case"]   # keep X- fields, e.g. for iCloud/macOS
+# photo-timeout = 10.0           # seconds per photo download
+# photo-max-px = 512             # longest side of embedded photos
+# photo-quality = 85             # JPEG quality, 1-95
+# dry-run = false                # only report what would change
+# interactive = false            # ask before changing each contact
+
+[strip]
+# backup = true
+# fields = ["PHOTO", "X-*", "TEL[TYPE=FAX]"]   # remove these (the option is -f/--field)
+# keep = ["FN,N,TEL,EMAIL"]      # keep only these
+# preset = "privacy"             # minimal: keep FN, N, TEL, EMAIL; privacy: drop PHOTO, NOTE, BDAY, GEO, ADR, X-*
+# drop-types = ["EMAIL=INTERNET", "*=PREF"]   # remove these TYPE values, keep the properties (option --drop-type)
+# dry-run = false                # only report what would change
+# interactive = false            # ask before changing each contact
+
+[dedupe]
+# backup = true
+# match = ["phone", "email", "name"]   # add "pinyin" to match 陈磊 with Lei Chen
+# name-threshold = 100           # 0-100; below 100 also matches similar names
+# ignore-phones = ["+86 10 5765 0000"]   # shared numbers that link nobody
+# region = "CN"
+# report = "dedupe.csv"          # CSV of the merged groups
+# interactive = false            # ask before merging each group
+# dry-run = false                # only list the groups
+
+[validate]
+# errors-only = false            # do not list warnings

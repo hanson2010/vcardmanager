@@ -50,6 +50,18 @@ def test_fix_encoding():
     assert result.get("NOTE").value == "é"  # NFC
 
 
+def test_fix_escapes():
+    result = only(
+        "FN:a\\:b\nNOTE:Photo: https\\\\://x.example\\, \\;\\n C:\\Users\nURL:https\\://x.example\n"
+        "N:Lee\\:;Ann;;;\n",
+        "fix-escapes",
+    )
+    assert result.get("FN").raw == "a:b"
+    assert result.get("NOTE").raw == "Photo: https://x.example\\, \\;\\n C:\\Users"  # needed escapes stay
+    assert result.get("URL").raw == "https://x.example"
+    assert result.get("N").components == ["Lee:", "Ann", "", "", ""]
+
+
 def test_upgrade_version_removes_invalid_type():
     result = only("FN:a\nEMAIL;TYPE=#1:a@b.example\nTEL;TYPE=CELL:1\n", "upgrade-version")
     assert result.get("EMAIL").params == {}
@@ -122,6 +134,26 @@ def test_phone_formats(raw, style, expected):
     assert result.get("TEL").value == expected
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("95588", "95588"), ("+86 95588", "95588"), ("0086 10086", "10086"), ("110", "110"), ("tel:+8612345", "tel:12345")],
+)
+def test_phone_format_keeps_service_numbers_dialable(raw, expected):
+    result = only(f"FN:a\nTEL:{raw}\n", "phone-format", region="CN")
+    assert result.get("TEL").value == expected
+    assert result.warnings == []
+
+
+def test_phone_format_leaves_service_numbers_without_region():
+    result = only("FN:a\nTEL:+86 95588\n", "phone-format")
+    assert result.get("TEL").value == "+86 95588"
+
+
+def test_phone_type_leaves_service_numbers_alone():
+    result = only("FN:a\nTEL;TYPE=WORK:95588\n", "phone-type", region="CN")
+    assert result.get("TEL").params["TYPE"] == ["WORK"]
+
+
 def test_phone_format_rejects_unknown_style():
     with pytest.raises(ValueError):
         only("FN:a\n", "phone-format", phone_format="fancy")
@@ -175,41 +207,81 @@ def test_name_fill_adds_n_but_not_to_group_cards():
 
 
 @pytest.mark.parametrize(
-    ("fn", "n", "expected"),
+    ("fn", "n", "expected", "new_fn"),
     [
-        ("欧阳娜娜", ";欧阳娜娜;;;", ["欧阳", "娜娜", "", "", ""]),  # compound surname
-        # the four agreed layouts
-        ("张三/suffix", ";张三/suffix;;;", ["张", "三", "", "", "/suffix"]),
-        ("John Smith/suffix", ";John Smith/suffix;;;", ["Smith", "John", "", "", "/suffix"]),
-        ("Bob 张三/suffix", ";Bob 张三/suffix;;;", ["Bob 张", "三", "", "", "/suffix"]),
-        ("史强 John Smith/suffix", ";史强 John Smith/suffix;;;", ["Smith", "史强 John", "", "", "/suffix"]),
-        # the English part's position in FN does not change the layout
-        ("张三 Bob", ";张三 Bob;;;", ["Bob 张", "三", "", "", ""]),
-        ("王海力Amy", "王海力;Amy;;;", ["Amy 王", "海力", "", "", ""]),
-        ("Bob Lee 张三", ";Bob Lee 张三;;;", ["Lee", "张三 Bob", "", "", ""]),
-        ("John Smith 史强", ";John Smith 史强;;;", ["Smith", "史强 John", "", "", ""]),
-        ("Mary Jane Watson 王芳", ";Mary Jane Watson 王芳;;;", ["Watson", "王芳 Mary Jane", "", "", ""]),
-        ("Gavin KONG 王小明", ";Gavin KONG 王小明;;;", ["KONG", "王小明 Gavin", "", "", ""]),
-        ("欧阳娜娜 Nana", ";欧阳娜娜 Nana;;;", ["Nana 欧阳", "娜娜", "", "", ""]),
-        # already in the agreed layout: unchanged
-        ("Bob 张三", "Bob 张;三;;;", ["Bob 张", "三", "", "", ""]),
-        ("史强 John Smith", "Smith;史强 John;;;", ["Smith", "史强 John", "", "", ""]),
-        ("Mary Jane Watson", ";Mary Jane Watson;;;", ["Watson", "Mary Jane", "", "", ""]),
-        ("Lee", ";Lee;;;", ["", "Lee", "", "", ""]),  # one word: nothing to split
-        ("Ann Lee", "Lee;Ann;;;", ["Lee", "Ann", "", "", ""]),  # already split
-        ("单位-快递", ";单位-快递;;;", ["", "单位-快递", "", "", ""]),  # organisation
-        ("王小明/北京/朝阳", ";王小明/北京/朝阳;;;", ["王", "小明", "", "", "/北京/朝阳"]),
+        ("欧阳娜娜", ";欧阳娜娜;;;", ["欧阳", "娜娜", "", "", ""], None),  # compound surname
+        ("张三/suffix", ";张三/suffix;;;", ["张", "三", "", "", "/suffix"], None),
+        ("John Smith/suffix", ";John Smith/suffix;;;", ["Smith", "John", "", "", "/suffix"], None),
+        # non-English mode: an English word goes after the given name; FN is surname + given name
+        ("Bob 张三/suffix", ";Bob 张三/suffix;;;", ["张", "三 Bob", "", "", "/suffix"], "张三 Bob/suffix"),
+        ("张三 Bob", ";张三 Bob;;;", ["张", "三 Bob", "", "", ""], None),
+        ("王海力Amy", "王海力;Amy;;;", ["王", "海力 Amy", "", "", ""], "王海力 Amy"),
+        ("欧阳娜娜 Nana", ";欧阳娜娜 Nana;;;", ["欧阳", "娜娜 Nana", "", "", ""], None),
+        ("Bob 张三", "Bob 张;三;;;", ["张", "三 Bob", "", "", ""], "张三 Bob"),
+        # English mode: anything else goes before the English given name; FN is given name + surname
+        ("史强 John Smith/suffix", ";史强 John Smith/suffix;;;", ["Smith", "史强 John", "", "", "/suffix"], None),
+        ("Bob Lee 张三", ";Bob Lee 张三;;;", ["Lee", "张三 Bob", "", "", ""], "张三 Bob Lee"),
+        ("John Smith 史强", ";John Smith 史强;;;", ["Smith", "史强 John", "", "", ""], "史强 John Smith"),
+        ("Mary Jane Watson 王芳", ";Mary Jane Watson 王芳;;;", ["Watson", "王芳 Mary Jane", "", "", ""],
+         "王芳 Mary Jane Watson"),  # fmt: skip
+        ("Gavin KONG 王小明", ";Gavin KONG 王小明;;;", ["KONG", "王小明 Gavin", "", "", ""], "王小明 Gavin KONG"),
+        # however the app split N
+        ("史强 John Smith", "史;强 John Smith;;;", ["Smith", "史强 John", "", "", ""], None),
+        ("史强 John Smith", "史强;John Smith;;;", ["Smith", "史强 John", "", "", ""], None),
+        ("John Smith 史强", "John Smith;史强;;;", ["Smith", "史强 John", "", "", ""], "史强 John Smith"),
+        ("司马强 John Smith", "司马;强 John Smith;;;", ["Smith", "司马强 John", "", "", ""], None),
+        ("史强 John Smith", "Smith;史强 John;;;", ["Smith", "史强 John", "", "", ""], None),
+        ("Cissy 强强强 Hu/suffix", "Cissy 强;强强;Hu;;/suffix", ["Hu", "强强强 Cissy", "", "", "/suffix"],
+         "强强强 Cissy Hu/suffix"),  # fmt: skip
+        # the middle name moves into the given name: after it, or before it when both are Han
+        ("Ann M. Lee", "Lee;Ann;M.;;", ["Lee", "Ann M.", "", "", ""], None),
+        ("张伟诚", "张;诚;伟;;", ["张", "伟诚", "", "", ""], None),
+        # unchanged
+        ("Mary Jane Watson", ";Mary Jane Watson;;;", ["Watson", "Mary Jane", "", "", ""], None),
+        ("Lee", ";Lee;;;", ["", "Lee", "", "", ""], None),  # one word: nothing to split
+        ("Ann Lee", "Lee;Ann;;;", ["Lee", "Ann", "", "", ""], None),  # already split
+        ("Johnny", "Smith;John;;;", ["Smith", "John", "", "", ""], None),  # FN is another name: kept
+        ("单位-快递", ";单位-快递;;;", ["", "单位-快递", "", "", ""], None),  # organisation
+        ("王小明/北京/朝阳", ";王小明/北京/朝阳;;;", ["王", "小明", "", "", "/北京/朝阳"], None),
     ],
 )
-def test_name_label_and_split(fn, n, expected):
+def test_name_label_and_split(fn, n, expected, new_fn):
     result = only(f"FN:{fn}\nN:{n}\n", "name-label", "name-split")
     assert result.get("N").components == expected
-    assert result.get("FN").value == fn
+    assert result.get("FN").value == (new_fn or fn)
+
+
+def test_name_fill_reads_both_modes():
+    assert only("N:Hu;强强强 Cissy;;;/x\n", "name-fill").get("FN").value == "强强强 Cissy Hu/x"
+    assert only("N:张;三 Bob;;;\n", "name-fill").get("FN").value == "张三 Bob"
 
 
 def test_name_label_not_applied_to_organisations():
     result = only("FN:单位-燃气/客服\nN:;单位-燃气/客服;;;\n", "name-label")
     assert result.get("N").components == ["", "单位-燃气/客服", "", "", ""]
+
+
+@pytest.mark.parametrize(
+    ("fn", "n", "expected"),
+    [
+        ("单位-快递-顺丰-张三", ";单位-快递-顺丰-张三;;;", ["张三", "", "", "单位-快递-顺丰-", ""]),
+        ("单位 - 快递 - 顺丰 - 张三", "", ["张三", "", "", "单位-快递-顺丰-", ""]),  # spaces around hyphens
+        ("单位-快递-顺丰-张三/客服", ";单位-快递-顺丰-张三/客服;;;", ["张三", "", "", "单位-快递-顺丰-", "/客服"]),
+        ("单位-快递-顺丰-张三", "张三;;;单位-快递-顺丰-;", ["张三", "", "", "单位-快递-顺丰-", ""]),  # already done
+        ("单位-快递-顺丰", ";单位-快递-顺丰;;;", ["顺丰", "", "", "单位-快递-", ""]),
+        ("A-B-C-D-E-张三", "", ["张三", "", "", "A-B-C-D-E-", ""]),
+        ("单位-快递", ";单位-快递;;;", ["快递", "", "", "单位-", ""]),
+        ("单位", ";单位;;;", ["单", "位", "", "", ""]),  # one part: not this format, so name-split applies
+        ("Mary-Jane Smith", "Smith;Mary-Jane;;;", ["Smith", "Mary-Jane", "", "", ""]),  # a person's name
+        ("Jean-Pierre", ";Jean-Pierre;;;", ["", "Jean-Pierre", "", "", ""]),
+        ("单位-快递--张三", ";单位-快递--张三;;;", ["", "单位-快递--张三", "", "", ""]),  # an empty part
+        ("单位-快递-顺丰-张三", "李;四;;;", ["李", "四", "", "", ""]),  # N holds another name: left alone
+    ],
+)
+def test_name_prefix(fn, n, expected):
+    result = only(f"FN:{fn}\nN:{n}\n", "name-label", "name-prefix", "name-split")
+    assert result.get("N").components == expected
+    assert result.get("FN").value == fn
 
 
 @pytest.mark.parametrize(
@@ -219,7 +291,7 @@ def test_name_label_not_applied_to_organisations():
         ("FN:John Smith\nN:Smith;John;;;\n", "John SMITH", ["SMITH", "John", "", "", ""]),
         ("FN:Lei Chen/HR\nN:Chen;Lei;;;/HR\n", "Lei CHEN/HR", ["CHEN", "Lei", "", "", "/HR"]),  # label untouched
         ("FN:史强 John Smith\nN:Smith;史强 John;;;\n", "史强 John SMITH", ["SMITH", "史强 John", "", "", ""]),
-        ("FN:Bob 张三\nN:Bob 张;三;;;\n", "Bob 张三", ["Bob 张", "三", "", "", ""]),  # Chinese surname: unchanged
+        ("FN:张三 Bob\nN:张;三 Bob;;;\n", "张三 Bob", ["张", "三 Bob", "", "", ""]),  # Chinese surname: unchanged
         ("FN:单位-快递\nN:;单位-快递;;;\n", "单位-快递", ["", "单位-快递", "", "", ""]),  # no surname: unchanged
     ],
 )
@@ -363,15 +435,13 @@ def test_photo_downloads_are_logged_once_per_url():
     assert messages[-1].endswith("(timed out)")
 
 
-def test_cli_prints_photo_progress(google_v30, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = CliRunner().invoke(main, ["clean", str(google_v30), "-o", str(out), "--enable", "photo-embed"])
+def test_cli_prints_photo_progress(google_v30, copy_of):
+    result = CliRunner().invoke(main, ["clean", str(copy_of(google_v30)), "--enable", "photo-embed"])
     assert result.exit_code == 0, result.output
     # 8 photo NOTEs and 1 PHOTO, but 宋平国's PHOTO repeats his NOTE's URL: 8 downloads (refused in tests)
     assert result.stderr.count("Downloading photo ") == 8
     assert result.stderr.count(": failed after ") == 8
-    quiet = CliRunner().invoke(main, ["clean", str(google_v30), "-o", str(tmp_path / "q.vcf"), "-q",
-                                      "--enable", "photo-embed"])  # fmt: skip
+    quiet = CliRunner().invoke(main, ["clean", str(copy_of(google_v30, "q.vcf")), "-q", "--enable", "photo-embed"])
     assert quiet.stderr == ""
 
 
@@ -402,9 +472,9 @@ def test_clean_skips_whole_file_rules():
     assert kept.get("X-MEMBERS") is not None
 
 
-def test_cleaned_legacy_fixture_validates(legacy_v21_gbk, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = CliRunner().invoke(main, ["clean", str(legacy_v21_gbk), "-o", str(out), "--region", "CN"])
+def test_cleaned_legacy_fixture_validates(legacy_v21_gbk, copy_of):
+    out = copy_of(legacy_v21_gbk)
+    result = CliRunner().invoke(main, ["clean", str(out), "--region", "CN"])
     assert result.exit_code == 0, result.output
     assert "Cleaned 72 cards" in result.stderr  # drop-extensions is on: the 7 groups moved into CATEGORIES
     validated = CliRunner().invoke(main, ["validate", str(out)])
@@ -413,12 +483,12 @@ def test_cleaned_legacy_fixture_validates(legacy_v21_gbk, tmp_path):
     assert all(c.get("FN") for c in read_vcards(out))
 
 
-def test_cli_list_rules_and_errors(google_v30, tmp_path):
+def test_cli_list_rules_and_errors(google_v30, copy_of):
     runner = CliRunner()
     listing = runner.invoke(main, ["clean", "--list-rules"])
     assert listing.exit_code == 0
     assert "photo-embed" in listing.output and "off" in listing.output
     assert runner.invoke(main, ["clean"]).exit_code == 2
-    bad = runner.invoke(main, ["clean", str(google_v30), "-o", str(tmp_path / "o.vcf"), "--enable", "nope"])
+    bad = runner.invoke(main, ["clean", str(copy_of(google_v30)), "--enable", "nope"])
     assert bad.exit_code == 2
     assert "unknown rule" in bad.output

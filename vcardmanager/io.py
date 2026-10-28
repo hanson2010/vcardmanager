@@ -1,6 +1,7 @@
 """Input collection, safe output and filenames."""
 
 import re
+import shutil
 import sys
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
@@ -66,6 +67,13 @@ def default_output(inputs: Sequence[str], suffix: str) -> str:
     while candidate.exists():
         candidate, n = base.with_name(f"{name}_{suffix}_{n}.vcf"), n + 1
     return str(candidate)
+
+
+def make_backup(path: str) -> str:
+    """Copy `path` to `<stem>_backup.vcf` (numbered `_backup_2.vcf`… if that exists) and return the copy's name."""
+    target = default_output([path], "backup")
+    shutil.copy2(path, target)
+    return target
 
 
 def check_output(path: str, inputs: Iterable[str] = (), force: bool = False) -> None:

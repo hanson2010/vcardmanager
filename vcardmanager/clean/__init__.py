@@ -6,13 +6,14 @@ from typing import Any
 from vcardmanager.clean.base import Context, Fetch, Rule, copy_card
 from vcardmanager.clean.emails import email_lowercase
 from vcardmanager.clean.extensions import drop_extensions, groups_to_categories
-from vcardmanager.clean.names import name_case, name_fill, name_label, name_split
+from vcardmanager.clean.names import name_case, name_fill, name_label, name_prefix, name_split
 from vcardmanager.clean.phones import FORMATS, phone_format, phone_type
 from vcardmanager.clean.photos import photo_compression, photo_embed
 from vcardmanager.clean.structure import (
     dedupe_values,
     drop_empty,
     fix_encoding,
+    fix_escapes,
     sort_properties,
     trim_whitespace,
     type_normalize,
@@ -25,6 +26,7 @@ from vcardmanager.strip import drop_orphaned_groups
 RULES = [
     # text
     Rule("fix-encoding", "Remove invisible and control characters, normalize Unicode", True, fix_encoding),
+    Rule("fix-escapes", "Remove needless backslashes, such as \\: or Google's https\\\\://", True, fix_escapes),
     Rule("upgrade-version", "Remove 2.1 leftovers that 3.0/4.0 cannot express, such as TYPE=#1", True, upgrade_version),
     Rule("trim-whitespace", "Strip and collapse whitespace in values", True, trim_whitespace),
     Rule("drop-empty", "Remove properties with empty values", True, drop_empty),
@@ -51,6 +53,7 @@ RULES = [
     # names: fill, then label, split and case
     Rule("name-fill", "Build a missing FN (from N, ORG, email or phone) and a missing N", True, name_fill),
     Rule("name-label", "Move a label after a slash into the N suffix", True, name_label),
+    Rule("name-prefix", "AA-BB-…-ZZ: AA-BB-…- goes to the N prefix, ZZ to the family name", True, name_prefix),
     Rule("name-split", "Put family and given names in the right N fields", True, name_split),
     Rule("name-case", "Latin surnames in capitals (John SMITH); fix all-caps or all-lowercase names", True, name_case),
     # photos: download, then shrink
@@ -159,6 +162,19 @@ def iter_clean(
     Without whole-file rules and `progress`, cards are cleaned as they arrive, so memory use stays flat.
     Otherwise all cards are read first.
     """
+    for _, cleaned in iter_clean_pairs(cards, rules, progress=progress, **options):
+        yield cleaned
+
+
+def iter_clean_pairs(
+    cards: Iterable[VCard],
+    rules: Iterable[str] = DEFAULT_RULES,
+    *,
+    progress: Callable[[list[VCard]], Iterable[VCard]] | None = None,
+    **options: Any,
+) -> Iterator[tuple[VCard, VCard]]:
+    """Like `iter_clean`, but yield `(before, cleaned)`: `before` is the card after the whole-file rules,
+    before the card rules, so it can be kept instead of `cleaned`."""
     ctx = make_context(**options)
     active = resolve(rules)
     stream: Iterable[VCard] = cards
@@ -169,7 +185,7 @@ def iter_clean(
                 work = rule.cards(work, ctx)
         stream = progress(work) if progress is not None else work
     for card in stream:
-        yield _apply(card, active, ctx)
+        yield card, _apply(card, active, ctx)
 
 
 __all__ = [
@@ -180,6 +196,7 @@ __all__ = [
     "clean",
     "clean_cards",
     "iter_clean",
+    "iter_clean_pairs",
     "make_context",
     "needs_all_cards",
     "resolve",

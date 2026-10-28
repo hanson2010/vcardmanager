@@ -66,14 +66,18 @@ def test_failed_write_keeps_the_old_file(google_v30, tmp_path):
 def test_overwriting_an_input_while_streaming_it(google_v30, tmp_path):
     copy = tmp_path / "contacts.vcf"
     copy.write_bytes(google_v30.read_bytes())
-    result = CliRunner().invoke(main, ["strip", str(copy), "-o", str(copy), "--field", "PHOTO", "--force"])
+    result = CliRunner().invoke(main, ["strip", str(copy), "--field", "PHOTO"])
     assert result.exit_code == 0, result.output
     cards = read_vcards(copy)
     assert len(cards) == 55
     assert not any(c.get("PHOTO") for c in cards)
 
 
-def test_bad_explicit_encoding_is_a_usage_error(google_v30, tmp_path):
-    result = CliRunner().invoke(main, ["merge", str(google_v30), "-o", str(tmp_path / "o.vcf"), "--encoding", "ascii"])
+def test_bad_explicit_encoding_is_a_usage_error(google_v30, copy_of, tmp_path):
+    source = copy_of(google_v30)
+    result = CliRunner().invoke(main, ["merge", str(source), "--encoding", "ascii"])
     assert result.exit_code == 2
-    assert not (tmp_path / "o.vcf").exists()
+    assert [p.name for p in tmp_path.iterdir()] == ["google_v30.vcf"]
+    result = CliRunner().invoke(main, ["clean", str(source), "--encoding", "ascii"])
+    assert result.exit_code == 2
+    assert source.read_bytes() == google_v30.read_bytes()  # left intact

@@ -68,6 +68,34 @@ def test_shared_hotline_does_not_link():
     assert find_duplicates(cards("FN:Ann\nTEL:95338\n", "FN:Bob\nTEL:95338\n")) == []
 
 
+@pytest.mark.parametrize(
+    ("han", "latin"),
+    [("陈磊", "Lei Chen"), ("陈磊", "CHEN Lei"), ("张伟诚", "Wei-Cheng Zhang"), ("欧阳娜娜", "Nana Ouyang"),
+     ("单雪", "Xue Shan"), ("吕方", "Fang Lv"), ("陈磊/HR", "Lei Chen")],
+)  # fmt: skip
+def test_pinyin_links_chinese_and_latin_names(han, latin):
+    found = find_duplicates(cards(f"FN:{han}\n", f"FN:{latin}\n"), match=("pinyin",))
+    assert fns(found) == [[han, latin]]
+
+
+@pytest.mark.parametrize(
+    "bodies",
+    [
+        ("FN:陈磊\n", "FN:陈雷\n", "FN:Lei Chen\n"),  # which one is Lei Chen? link nobody
+        ("FN:陈磊\n", "FN:陈蕾\n"),  # two Chinese names: pinyin only links Chinese to Latin
+        ("FN:Lei Chen\n", "FN:Chen Lei\n"),
+        ("FN:陈磊\n", "FN:Lei Chen Smith Jones Brown\n"),
+        ("FN:单位-快递\n", "FN:Dan Wei\n"),
+    ],
+)
+def test_pinyin_does_not_link(bodies):
+    assert find_duplicates(cards(*bodies), match=("pinyin",)) == []
+
+
+def test_pinyin_is_not_a_default_match():
+    assert find_duplicates(cards("FN:陈磊\n", "FN:Lei Chen\n")) == []
+
+
 def test_fuzzy_names():
     found = cards("FN:Jonathan Smith\n", "FN:Jonathon Smith\n", "FN:Ann Lee\n", "FN:Anne Lee\n")
     assert find_duplicates(found) == []
@@ -134,7 +162,7 @@ def test_best_name_contains_the_others():
         "宋平国/CS",
         ["宋", "平国", "", "", "/CS"],
     )
-    assert merged_name("FN:杨伟云\nN:杨;伟云;;;\nTEL:1234567\n", "FN:Joy 杨伟云\n")[0] == "Joy 杨伟云"
+    assert merged_name("FN:杨伟云\nN:杨;伟云;;;\nTEL:1234567\n", "FN:Joy 杨伟云\n")[0] == "杨伟云 Joy"
 
 
 def test_best_name_prefers_richer_names_over_handles():
@@ -143,8 +171,8 @@ def test_best_name_prefers_richer_names_over_handles():
         "FN:萧清强\nN:萧;清强;;;\n",
     ) == ("萧清强", ["萧", "清强", "", "", ""])
     assert merged_name("FN:Joy Yang\nN:Yang;Joy;;;\nTEL:1234567\n", "FN:Joy 杨伟云\n") == (
-        "Joy 杨伟云",
-        ["Joy 杨", "伟云", "", "", ""],
+        "杨伟云 Joy",
+        ["杨", "伟云 Joy", "", "", ""],
     )
     assert merged_name("FN:ann@x.example\nN:;ann;;;\nTEL:1234567\n", "FN:Ann Lee\n")[0] == "Ann Lee"
 
@@ -190,33 +218,47 @@ def run(*args, input=None):
     return CliRunner().invoke(main, ["dedupe", *map(str, args)], input=input)
 
 
-def test_cli_dry_run_writes_nothing(google_v30, legacy_v21_gbk, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = run(google_v30, legacy_v21_gbk, "-o", out, "--dry-run")
+def merged_fixtures(google_v30, legacy_v21_gbk, copy_of):
+    """Both fixtures merged into one file: some people are in both."""
+    first = copy_of(google_v30)
+    assert CliRunner().invoke(main, ["merge", str(first), str(copy_of(legacy_v21_gbk)), "-q"]).exit_code == 0
+    return first.with_name("google_v30_merged.vcf")
+
+
+def test_cli_dry_run_writes_nothing(google_v30, legacy_v21_gbk, copy_of):
+    both = merged_fixtures(google_v30, legacy_v21_gbk, copy_of)
+    before = both.read_bytes()
+    result = run(both, "--dry-run")
     assert result.exit_code == 0
     assert result.stdout.count("Group ") == 7
     assert "7 groups, 15 cards would be merged" in result.stderr
-    assert not out.exists()
+    assert both.read_bytes() == before
 
 
-def test_cli_merge_and_report(google_v30, legacy_v21_gbk, tmp_path):
-    out, report = tmp_path / "out.vcf", tmp_path / "report.csv"
-    result = run(google_v30, legacy_v21_gbk, "-o", out, "--report", report)
+def test_cli_merge_and_report(google_v30, legacy_v21_gbk, copy_of, tmp_path):
+    both, report = merged_fixtures(google_v30, legacy_v21_gbk, copy_of), tmp_path / "report.csv"
+    result = run(both, "--report", report)
     assert result.exit_code == 0, result.output
-    assert len(read_vcards(out)) == 55 + 79 - 15 + 7
+    assert len(read_vcards(both)) == 55 + 79 - 15 + 7
     rows = list(csv.DictReader(report.open(encoding="utf-8-sig")))
     assert len(rows) == 15
     assert {row["group"] for row in rows} == {str(n) for n in range(1, 8)}
 
 
-def test_cli_interactive(google_v30, legacy_v21_gbk, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = run(google_v30, legacy_v21_gbk, "-o", out, "-i", input="y\n" + "n\n" * 6)
+def test_cli_interactive(google_v30, legacy_v21_gbk, copy_of):
+    both = merged_fixtures(google_v30, legacy_v21_gbk, copy_of)
+    result = run(both, "-i", input="y\n" + "n\n" * 6)
     assert result.exit_code == 0
     assert "Merged 2 cards into 1" in result.stderr  # only the first group: 蔡思 from each file
 
 
-def test_cli_match_option(google_v30, legacy_v21_gbk):
-    result = run(google_v30, legacy_v21_gbk, "--dry-run", "--match", "email")
+def test_cli_files_are_deduplicated_separately(google_v30, legacy_v21_gbk):
+    result = run(google_v30, legacy_v21_gbk, "--dry-run")
+    assert result.exit_code == 0
+    assert "蔡思" not in result.stdout  # in both files, but once in each
+
+
+def test_cli_match_option(google_v30, legacy_v21_gbk, copy_of):
+    result = run(merged_fixtures(google_v30, legacy_v21_gbk, copy_of), "--dry-run", "--match", "email")
     assert result.stdout.count("Group ") == 5
     assert run(google_v30, "--dry-run", "--match", "shoe size").exit_code == 2

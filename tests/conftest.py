@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,18 @@ def google_v30() -> Path:
 def legacy_v21_gbk() -> Path:
     """Legacy phone/mail-client export, vCard 2.1, GBK (anonymized from a real export)."""
     return FIXTURES / "legacy_v21_gbk.vcf"
+
+
+@pytest.fixture
+def copy_of(tmp_path):
+    """Copy a fixture into tmp_path, so that in-place commands can rewrite it."""
+
+    def copy(source: Path, name: str | None = None) -> Path:
+        target = tmp_path / (name or source.name)
+        shutil.copyfile(source, target)
+        return target
+
+    return copy
 
 
 def uid(card) -> str:

@@ -1,4 +1,4 @@
-"""Name rules: fill FN/N, move labels to the N suffix, split names into family and given parts."""
+"""Name rules: fill FN/N, move labels to the N suffix and prefix, split names into family and given parts."""
 
 import re
 
@@ -31,15 +31,34 @@ def has_han(text: str) -> bool:
     return bool(_HAN.search(text))
 
 
+def _concat(first: str, second: str) -> str:
+    """Join two name parts: no space between Han characters (`张` + `三`), else one space."""
+    if first and second and has_han(first[-1]) and has_han(second[0]):
+        return first + second
+    return " ".join(part for part in (first, second) if part)
+
+
+def _fold_middle(given: str, middle: str) -> str:
+    """The given name with the middle name moved in: after it (`Ann M.`), or before it when both are Han, as
+    Chinese names read (`张;诚;伟` is 张伟诚)."""
+    if has_han(given[:1]) and has_han(middle[-1:]):
+        return middle + given
+    return _concat(given, middle)
+
+
+def _full_name(family: str, given: str) -> str:
+    """English mode (a Latin surname): given + surname. Otherwise surname + given."""
+    if family and not has_han(family):
+        return _concat(given, family)
+    return _concat(family, given)
+
+
 def _name_from_n(card: VCard) -> str:
     n = card.get("N")
     if n is None:
         return ""
-    family, given, additional, prefix, suffix = (c.strip() for c in _pad(n.components)[:5])
-    if has_han(family + given + additional):
-        name = family + additional + given
-    else:
-        name = " ".join(part for part in (prefix, given, additional, family) if part)
+    family, given, middle, prefix, suffix = (c.strip() for c in _pad(n.components)[:5])
+    name = _concat(prefix, _full_name(family, _fold_middle(given, middle)))
     if suffix and name:
         name += suffix if suffix.startswith("/") else f" {suffix}"
     return name
@@ -122,6 +141,45 @@ def name_label(card: VCard, ctx: Context) -> None:
         n.components = components
 
 
+MIN_HYPHEN_PARTS = 2  # `单位-快递`: category parts, then the name
+
+
+def _hyphen_prefix(fn: str) -> tuple[str, str, str] | None:
+    """(prefix, name, label) of an FN like `AA-BB-CC-DD/label`: (`AA-BB-CC-`, `DD`, `/label`), else None.
+
+    Any number of parts from MIN_HYPHEN_PARTS on; none may be empty. A Latin name with a hyphen
+    (`Mary-Jane Smith`, `Jean-Pierre`) is a person's name, not one of these.
+    """
+    name, slash, label = fn.partition("/")
+    if not has_han(name) and is_personal_name(name.strip()):
+        return None
+    parts = [part.strip() for part in name.split("-")]
+    if len(parts) < MIN_HYPHEN_PARTS or not all(parts):
+        return None
+    return "-".join(parts[:-1]) + "-", parts[-1], slash + label.strip()
+
+
+def name_prefix(card: VCard, ctx: Context) -> None:
+    """For an FN of two or more parts joined by hyphens (`单位-快递-顺丰-张三`), put all but the last
+    (`单位-快递-顺丰-`) in the N prefix and the last (`张三`) in the family name; a label after a slash goes
+    to the suffix. FN is not changed.
+
+    An N that holds something else than FN's name is left alone.
+    """
+    fn, n = card.get("FN"), card.get("N")
+    if fn is None or n is None or card.kind == "group" or (split := _hyphen_prefix(fn.value)) is None:
+        return
+    prefix, name, label = split
+    components = _pad(n.components)
+    held = "".join(components[:4])
+    if held.strip() and not any(_same_name(held, prefix + name + extra) for extra in ("", label)):
+        return
+    components[:4] = [name, "", "", prefix]
+    if label and not components[4]:
+        components[4] = label
+    n.components = components
+
+
 def _split_english(words: list[str]) -> tuple[str, list[str]]:
     """(family, given words) of an English name: the last word, or the only all-caps word (`Gavin KONG`)."""
     capitals = [w for w in words if len(w) > 1 and w.isupper()]
@@ -129,50 +187,80 @@ def _split_english(words: list[str]) -> tuple[str, list[str]]:
     return family, [w for w in words if w is not family]
 
 
-def _split_name(text: str) -> tuple[str, str] | None:
-    """Split a full name into (family, given), or None if it does not look like a person's name.
+def _split(family: str, given: str) -> tuple[str, str] | None:
+    """Lay out N's (family, given) in one of two modes, or None if it is not a person's name.
 
-    N is laid out so that reading it in the name's own order gives the full name back:
+    English mode, when there are an English surname and an English given name: the English surname is the
+    family name, and anything else (a Chinese name) goes before the English given name.
+    Non-English mode: the Chinese surname is the family name, and an English word goes after the given name.
 
-        张三                                     ->  张;三
-        John Smith                               ->  Smith;John
-        Chinese name + one English word          ->  Bob 张;三
-        Chinese name + two or more English words ->  Smith;史强 John
+        张三             ->  张;三
+        John Smith       ->  Smith;John
+        Bob 张三         ->  张;三 Bob
+        史强 John Smith  ->  Smith;史强 John
 
-    A Chinese name is read family-first, so a single English word goes before the surname. Two or more English
-    words are a full English name, read given-first, so the Chinese name goes before the given name. Where the
-    English part stands in FN does not matter.
+    Where the English part stands does not matter. A surname the app already split off is kept.
     """
+    text = _concat(family, given)
     if not is_personal_name(text):
         return None
     tokens = _TOKEN.findall(text)
     han = [t for t in tokens if has_han(t)]
     english = [t for t in tokens if not has_han(t)]
-    if len(english) >= 2:  # `John Smith`, `史强 John Smith`, `Bob Lee 张三`
-        family, given = _split_english(english)
-        return family, " ".join([*han, *given])
+    if len(english) >= 2:
+        if family and not has_han(family) and " " not in family:
+            surname = family  # `Smith;史强 John`, `Lee;Ann`: as the app split it
+            english.remove(family)
+        else:
+            surname, english = _split_english(english)
+        return surname, " ".join([*han, *english])
     if not han:
         return None  # a single word: nothing to split
-    run = han[0]  # `张三`, `Bob 张三`, `傅清洋Lena`
-    surname = run[:2] if run[:2] in COMPOUND_SURNAMES and len(run) > 2 else run[0]
-    return " ".join([*english, surname]), run[len(surname) :]
+    run = han[0]
+    split_off = "".join(t for t in _TOKEN.findall(family) if has_han(t))
+    if split_off and run.startswith(split_off) and len(split_off) < len(run):
+        surname = split_off  # `张;三`, `Bob 张;三`: as the app split it
+    else:
+        surname = run[:2] if run[:2] in COMPOUND_SURNAMES and len(run) > 2 else run[0]
+    return surname, " ".join([run[len(surname) :], *english])
+
+
+def _split_name(text: str) -> tuple[str, str] | None:
+    """(family, given) of a full name, as `name-split` lays it out, or None if it is not a person's name."""
+    return _split("", text)
+
+
+def _same_name(a: str, b: str) -> bool:
+    """The same characters, in any order and spacing."""
+    return sorted(a.replace(" ", "").casefold()) == sorted(b.replace(" ", "").casefold())
 
 
 def name_split(card: VCard, ctx: Context) -> None:
-    """Put family and given names in the right N fields; see `_split_name` for mixed Chinese/English names."""
+    """Put family and given names in the right N fields (see `_split`) and move a middle name into the given
+    name. FN is rebuilt to match when it holds the same name in another order (`Bob 张三` -> `张三 Bob`)."""
     n = card.get("N")
     if n is None or card.kind == "group":
         return
     components = _pad(n.components)
-    family, given = components[0].strip(), components[1].strip()
-    if family and not has_han(family):
-        return  # a Latin family name, as the app wrote it
-    if family and (len(family) == 1 or family in COMPOUND_SURNAMES):
-        return  # already split
-    split = _split_name(family + given if family else given)
+    if components[3].strip().endswith("-"):
+        return  # laid out by `name-prefix`: the family name is kept whole
+    family, given, middle = (c.strip() for c in components[:3])
+    if middle:
+        given, components[2] = _fold_middle(given, middle), ""
+    split = _split(family, given)
     if split is not None:
-        components[0], components[1] = split
-        n.components = components
+        family, given = split
+    if middle or split is not None:
+        components[0], components[1] = family, given
+        if components != n.components:
+            n.components = components
+    fn = card.get("FN")
+    if split is None or fn is None:
+        return
+    name, slash, label = fn.value.partition("/")
+    full = _full_name(family, given)
+    if name.strip() != full and _same_name(name, full):
+        fn.value = full + slash + label
 
 
 _WORD = re.compile(r"[^\W\d_]+")
@@ -202,7 +290,7 @@ def name_case(card: VCard, ctx: Context) -> None:
 
     `John Smith`, `JOHN SMITH` and `john smith` all become FN `John SMITH` and N `SMITH;John`. The surname
     is N's family field (or, without N, what `name-split` would take from FN); Chinese surnames are left as
-    they are, so `Bob 张;三` does not change. Left alone: single words (`IBM`, `McDonald`), handles (names
+    they are, so `张;三 Bob` does not change. Left alone: single words (`IBM`, `McDonald`), handles (names
     with `_`, `@` or digits, or equal to the contact's email name: `lin_shan`, `tzhao`) and labels after a slash.
     """
     handles = {e.value.split("@")[0].strip().casefold() for e in card.get_all("EMAIL") if "@" in e.value}

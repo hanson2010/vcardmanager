@@ -46,6 +46,12 @@ def test_near_duplicates_not_merged_by_default(google_v30, legacy_v21_gbk):
         assert not_expected not in grouped
 
 
+def test_match_by_pinyin(google_v30, legacy_v21_gbk):
+    cards = vcardmanager.read_vcards([google_v30, legacy_v21_gbk])
+    groups = uid_groups(dedupe.find_duplicates(cards, match=("pinyin",)))
+    assert frozenset({"205", GOOGLE_CHEN_LEI}) in groups
+
+
 def test_match_by_email_only(google_v30, legacy_v21_gbk):
     cards = vcardmanager.read_vcards([google_v30, legacy_v21_gbk])
     groups = uid_groups(dedupe.find_duplicates(cards, match=("email",)))

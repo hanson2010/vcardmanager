@@ -3,7 +3,15 @@ from click.testing import CliRunner
 
 from vcardmanager import parse_text, read_vcards
 from vcardmanager.cli import main
-from vcardmanager.strip import FieldPattern, needs_group_conversion, parse_patterns, strip_card
+from vcardmanager.strip import (
+    FieldPattern,
+    TypePattern,
+    needs_group_conversion,
+    parse_patterns,
+    parse_type_patterns,
+    strip_card,
+    strip_types,
+)
 
 CARD = parse_text(
     "BEGIN:VCARD\nVERSION:3.0\nFN:Ann\nN:Lee;Ann;;;\nTEL;TYPE=CELL:1\nTEL;TYPE=WORK,FAX:2\n"
@@ -79,9 +87,9 @@ def run(*args):
     return CliRunner().invoke(main, ["strip", *map(str, args)])
 
 
-def test_cli_preset_privacy(google_v30, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = run(google_v30, "-o", out, "--preset", "privacy")
+def test_cli_preset_privacy(google_v30, copy_of):
+    out = copy_of(google_v30)
+    result = run(out, "--preset", "privacy")
     assert result.exit_code == 0
     cards = read_vcards(out)
     assert len(cards) == 55
@@ -108,13 +116,13 @@ def test_needs_group_conversion(fields, keep, expected):
     assert needs_group_conversion(parse_patterns(fields), keep_patterns) is expected
 
 
-def test_cli_strip_x_keeps_group_membership(legacy_v21_gbk, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = run(legacy_v21_gbk, "-o", out, "--field", "X-*")
+def test_cli_strip_x_keeps_group_membership(legacy_v21_gbk, copy_of):
+    out = copy_of(legacy_v21_gbk)
+    result = run(out, "--field", "X-*")
     assert result.exit_code == 0, result.output
     assert "no longer group cards" not in result.stderr
     assert "Moved the membership of 7 group cards into CATEGORIES" in result.stderr
-    assert "wrote 72 of 79 cards" in result.stderr
+    assert "kept 72 of 79 cards" in result.stderr
     cards = {c.get("UID").value: c for c in read_vcards(out)}
     assert len(cards) == 72  # the 7 group cards are gone; their membership is in the contacts
     assert "work-ops" in cards["153"].get("CATEGORIES").components  # listed only through GROUPING
@@ -122,14 +130,49 @@ def test_cli_strip_x_keeps_group_membership(legacy_v21_gbk, tmp_path):
     assert not {p.name for c in cards.values() for p in c.properties} & {"GROUPING", "X-TYPE", "X-MEMBERS"}
 
 
-def test_cli_minimal_warns_about_group_cards(legacy_v21_gbk, tmp_path):
-    out = tmp_path / "out.vcf"
-    result = run(legacy_v21_gbk, "-o", out, "--preset", "minimal")
+def test_cli_minimal_warns_about_group_cards(legacy_v21_gbk, copy_of):
+    out = copy_of(legacy_v21_gbk)
+    result = run(out, "--preset", "minimal")
     assert result.exit_code == 0
     assert "7 group cards are no longer group cards" in result.stderr
     assert {p.name for c in read_vcards(out) for p in c.properties} <= {"FN", "N", "TEL", "EMAIL"}
 
 
-def test_cli_needs_something_to_strip(google_v30, tmp_path):
-    assert run(google_v30, "-o", tmp_path / "out.vcf").exit_code == 2
-    assert run(google_v30, "-o", tmp_path / "out.vcf", "--field", "TEL[TYPE").exit_code == 2
+def test_parse_type_patterns():
+    assert parse_type_patterns(["email=internet, *=PREF"]) == [TypePattern("EMAIL", "INTERNET"), TypePattern("*", "PREF")]
+    for bad in ("EMAIL", "=INTERNET", "EMAIL=", "EMAIL[TYPE=X]=Y"):
+        with pytest.raises(ValueError):
+            parse_type_patterns([bad])
+
+
+def test_strip_types_keeps_the_properties():
+    card = parse_text(
+        "BEGIN:VCARD\nVERSION:3.0\nFN:Ann\nEMAIL;TYPE=INTERNET,WORK:a@x.example\n"
+        'EMAIL;TYPE="internet,HOME":b@x.example\nEMAIL;TYPE=INTERNET:c@x.example\nTEL;TYPE=INTERNET:1\n'
+        "PHOTO;ENCODING=b;TYPE=JPEG:AAAA\nEND:VCARD\n"
+    )[0]
+    stripped, removed = strip_types(card, parse_type_patterns(["EMAIL=INTERNET", "*=JPEG"]))
+    assert removed == 3
+    assert [e.params.get("TYPE") for e in stripped.get_all("EMAIL")] == [["WORK"], ["HOME"], None]
+    assert stripped.get("TEL").params["TYPE"] == ["INTERNET"]  # only EMAIL was named
+    assert stripped.get("PHOTO").params["TYPE"] == ["JPEG"]  # a media type is never removed
+    assert card.get("EMAIL").params["TYPE"] == ["INTERNET", "WORK"]  # the input is not changed
+
+
+def test_cli_drop_type(google_v30, copy_of):
+    source = copy_of(google_v30)
+    assert b"TYPE=INTERNET" in source.read_bytes()
+    result = run(source, "--drop-type", "EMAIL=INTERNET")
+    assert result.exit_code == 0, result.output
+    assert "and 27 type values" in result.stderr
+    assert b"TYPE=INTERNET" not in source.read_bytes()
+    assert sum(len(c.get_all("EMAIL")) for c in read_vcards(source)) == sum(
+        len(c.get_all("EMAIL")) for c in read_vcards(google_v30)
+    )
+    assert run(source, "--drop-type", "EMAIL").exit_code == 2
+
+
+def test_cli_needs_something_to_strip(google_v30, copy_of):
+    source = copy_of(google_v30)
+    assert run(source).exit_code == 2
+    assert run(source, "--field", "TEL[TYPE").exit_code == 2

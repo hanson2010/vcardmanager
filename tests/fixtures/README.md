@@ -62,4 +62,4 @@ UIDs 208–211 were added as cross-file duplicates (see the table below). Quirks
 | 萧清强 | `xiaoqingqiang@airtech.example` | UID 208, `FN:xiaoqingqiang`, same email | yes (email) |
 | Joy 杨伟云 | `Joy.Yang@vendor-d.example` | UID 209, `FN:Joy Yang`, `joy.yang@…` | yes (email, ignoring case) |
 | 宋平国 | second email `songpingguo2@mail.example` | UID 210, `FN:宋平国/CS`, same email | yes (email) |
-| 陈磊 / Lei Chen | `FN:陈磊` | UID 205, `FN:Lei Chen` | no (needs pinyin matching) |
+| 陈磊 / Lei Chen | `FN:陈磊` | UID 205, `FN:Lei Chen` | only with `--match pinyin` |
