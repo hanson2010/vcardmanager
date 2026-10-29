@@ -311,6 +311,11 @@ class Reviewer:
             say(f"Changed {self.accepted} of {self.changed} contacts that had changes")
 
 
+def at_terminal() -> bool:
+    """True if a person can answer questions: stdin is a terminal, not a pipe or a file."""
+    return sys.stdin.isatty()
+
+
 def check_interactive(inputs: tuple[str, ...]) -> None:
     if STDIO in inputs:
         raise click.UsageError("--interactive needs the answers on stdin, so INPUT cannot be `-`")
@@ -712,7 +717,12 @@ def _describe(group: DuplicateGroup, number: int) -> str:
 @click.option("--region", metavar="CC", help="Country assumed for phone numbers without a country code.")
 @click.option("--dry-run", is_flag=True, help="Only list the groups that would be merged.")
 @click.option("--report", type=click.Path(dir_okay=False), help="Write a CSV of the merged groups.")
-@click.option("-i", "--interactive", is_flag=True, help="Ask before merging each group.")
+@click.option(
+    "-i/-I",
+    "--interactive/--no-interactive",
+    default=None,
+    help="Ask before merging each group. Default: ask when run in a terminal.",
+)
 @common_options
 def dedupe(
     inputs: tuple[str, ...],
@@ -729,9 +739,13 @@ def dedupe(
     region: str | None,
     dry_run: bool,
     report: str | None,
-    interactive: bool,
+    interactive: bool | None,
 ) -> None:
     """Find contacts that are the same person and merge them, in place. Each file is deduplicated on its own."""
+    if interactive is None:  # answers come from stdin: only ask a person at a terminal, not a pipe or a script
+        interactive = at_terminal() and STDIO not in inputs
+    elif interactive and not dry_run:
+        check_interactive(inputs)
     if report and not dry_run:
         try:
             check_output(report, force=force)

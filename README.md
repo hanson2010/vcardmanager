@@ -125,14 +125,15 @@ membership is moved into `CATEGORIES` first.
 
 ```bash
 python -m vcardmanager dedupe all.vcf --dry-run          # show what would be merged
-python -m vcardmanager dedupe all.vcf --interactive      # confirm each group
+python -m vcardmanager dedupe all.vcf                    # asks before each group (in a terminal)
+python -m vcardmanager dedupe all.vcf --no-interactive   # merge without asking
 python -m vcardmanager dedupe all.vcf --report r.csv     # also write a CSV of what was merged
 python -m vcardmanager dedupe all.vcf --ignore-phone "+86 10 5765 0000"   # a shared office number
 ```
 
 Each file is deduplicated on its own; `merge` first to find duplicates across files.
-Contacts are the same person if they share a **phone number** (`+86 138…` = `138…`), an **email** or the
-exact **name**. `--match phone,email` picks which; `--name-threshold 90` also matches similar names.
+Contacts are the same person if they share a **phone number** (`+86 138…` = `138…`), an **email**
+(`user@example.com` = `user@example.com.cn`) or the exact **name**. `--match phone,email` picks which; `--name-threshold 90` also matches similar names.
 `--match phone,email,name,pinyin` also matches a Chinese name with its pinyin (`陈磊` = `Lei Chen`, `CHEN Lei`);
 a spelling that fits two Chinese names in the file (`陈磊`, `陈雷`) matches neither.
 

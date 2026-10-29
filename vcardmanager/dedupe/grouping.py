@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from rapidfuzz.fuzz import token_sort_ratio
 
 from vcardmanager.dedupe.pinyin import han_pinyin_keys, latin_pinyin_keys
-from vcardmanager.keys import email_key, name_key, phone_key
+from vcardmanager.keys import email_match_key, name_key, phone_key
 from vcardmanager.model import VCard
 
 MATCH_KINDS = ("phone", "email", "name", "pinyin")
@@ -65,7 +65,7 @@ def find_duplicate_groups(
             keys |= {("phone", k) for p in cards[i].get_all("TEL") if (k := phone_key(p.value, region))}
             keys -= {("phone", k) for k in ignored}
         if "email" in kinds:
-            keys |= {("email", k) for p in cards[i].get_all("EMAIL") if (k := email_key(p.value))}
+            keys |= {("email", k) for p in cards[i].get_all("EMAIL") if (k := email_match_key(p.value))}
         if "name" in kinds and (k := name_key(cards[i])):
             keys.add(("name", k))
         for key in keys:

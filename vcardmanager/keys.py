@@ -10,6 +10,8 @@ from vcardmanager.model import VCard
 
 MIN_PHONE_DIGITS = 7  # shorter numbers are service hotlines (95338) that many contacts share
 _ADDRESS_IN_ANGLES = re.compile(r"<([^>]+)>")
+# `example.com.cn` is `example.com` plus a country code: the same organisation
+_COUNTRY_DOMAIN = re.compile(r"^(?P<base>.+\.(?:com|net|org|edu|gov))\.[a-z]{2}$")
 
 
 def phone_key(value: str, region: str | None = None) -> str | None:
@@ -34,6 +36,17 @@ def email_key(value: str) -> str | None:
     match = _ADDRESS_IN_ANGLES.search(value)
     address = (match[1] if match else value).strip().removeprefix("mailto:").lower()
     return address if "@" in address else None
+
+
+def email_match_key(value: str) -> str | None:
+    """Like `email_key`, but a domain with a country code added matches the one without:
+    `user@example.com.cn` = `user@example.com`. For telling cards apart, not values: both addresses are kept."""
+    address = email_key(value)
+    if address is None:
+        return None
+    user, _, domain = address.rpartition("@")
+    match = _COUNTRY_DOMAIN.match(domain)
+    return f"{user}@{match['base']}" if match else address
 
 
 def name_key(card: VCard) -> str | None:

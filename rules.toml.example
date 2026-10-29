@@ -52,7 +52,7 @@
 # ignore-phones = ["+86 10 5765 0000"]   # shared numbers that link nobody
 # region = "CN"
 # report = "dedupe.csv"          # CSV of the merged groups
-# interactive = false            # ask before merging each group
+# interactive = false            # default: ask before each group when run in a terminal
 # dry-run = false                # only list the groups
 
 [validate]

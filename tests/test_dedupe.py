@@ -6,7 +6,7 @@ from click.testing import CliRunner
 from vcardmanager import parse_text, read_vcards
 from vcardmanager.cli import main
 from vcardmanager.dedupe import apply_merges, find_duplicate_groups, find_duplicates, merge_group
-from vcardmanager.keys import email_key, name_key, phone_key
+from vcardmanager.keys import email_key, email_match_key, name_key, phone_key
 
 
 def cards(*bodies):
@@ -34,6 +34,10 @@ def test_phone_key_trunk_prefix_and_short_numbers():
 def test_email_and_name_keys():
     assert email_key('"Ann" <Ann@X.example>') == "ann@x.example"
     assert email_key("not an address") is None
+    assert email_match_key("User@Example.com.CN") == email_match_key("user@example.com") == "user@example.com"
+    assert email_match_key("user@univ.edu.hk") == "user@univ.edu"
+    for other in ("user@example.cn", "user@example.com.evil.net", "user@example.com.abc", "user@mail.example.de"):
+        assert email_match_key(other) == email_key(other)
     (ann,) = cards("FN:  Ann   LEE\n")
     assert name_key(ann) == "ann lee"
     (lee,) = cards("FN:Lee Ann\n")
@@ -94,6 +98,13 @@ def test_pinyin_does_not_link(bodies):
 
 def test_pinyin_is_not_a_default_match():
     assert find_duplicates(cards("FN:陈磊\n", "FN:Lei Chen\n")) == []
+
+
+def test_country_domain_links_cards_and_keeps_both_addresses():
+    found = find_duplicate_groups(cards("FN:Ann\nEMAIL:ann@example.com\n", "FN:A. Lee\nEMAIL:ann@example.com.cn\n"))
+    assert [g.reasons for g in found] == [{"email"}]
+    (merged,) = apply_merges(found[0].cards, [found[0].cards])
+    assert sorted(e.value for e in merged.get_all("EMAIL")) == ["ann@example.com", "ann@example.com.cn"]
 
 
 def test_fuzzy_names():
@@ -250,6 +261,25 @@ def test_cli_interactive(google_v30, legacy_v21_gbk, copy_of):
     result = run(both, "-i", input="y\n" + "n\n" * 6)
     assert result.exit_code == 0
     assert "Merged 2 cards into 1" in result.stderr  # only the first group: 蔡思 from each file
+
+
+def test_cli_asks_by_default_only_at_a_terminal(legacy_v21_gbk, copy_of, monkeypatch):
+    source = copy_of(legacy_v21_gbk)
+    result = run(source)  # stdin is not a terminal here: merge without asking
+    assert "Merge these?" not in result.stderr
+    assert "Merged 4 cards into 2" in result.stderr
+    source = copy_of(legacy_v21_gbk)
+    monkeypatch.setattr("vcardmanager.cli.at_terminal", lambda: True)
+    result = run(source, input="n\nn\n")
+    assert result.stderr.count("Merge these?") == 2
+    assert "Merged 0 cards into 0" in result.stderr
+    assert "Merged 4 cards into 2" in run(copy_of(legacy_v21_gbk), "--no-interactive").stderr
+
+
+def test_cli_interactive_refuses_stdin(legacy_v21_gbk):
+    result = run("-", "-i", input=legacy_v21_gbk.read_bytes())
+    assert result.exit_code == 2
+    assert "cannot be `-`" in result.output
 
 
 def test_cli_files_are_deduplicated_separately(google_v30, legacy_v21_gbk):
