@@ -107,6 +107,20 @@ def test_country_domain_links_cards_and_keeps_both_addresses():
     assert sorted(e.value for e in merged.get_all("EMAIL")) == ["ann@example.com", "ann@example.com.cn"]
 
 
+@pytest.mark.parametrize(
+    ("names", "expected"),
+    [
+        (["王小明", "王小明/Mkt"], [["王小明", "王小明/Mkt"]]),
+        (["王小明/Mkt", "王小明/ mkt"], [["王小明/Mkt", "王小明/ mkt"]]),
+        (["王小明/Mkt", "王小明/IT"], []),
+        (["王小明", "王小明/Mkt", "王小明/IT"], []),  # which one is 王小明? link nobody to it
+        (["王小明", "王小明/Mkt", "王小明/IT", "王小明/IT"], [["王小明/IT", "王小明/IT"]]),
+    ],
+)
+def test_names_match_without_their_label(names, expected):
+    assert fns(find_duplicates(cards(*(f"FN:{n}\n" for n in names)))) == expected
+
+
 def test_fuzzy_names():
     found = cards("FN:Jonathan Smith\n", "FN:Jonathon Smith\n", "FN:Ann Lee\n", "FN:Anne Lee\n")
     assert find_duplicates(found) == []
@@ -241,8 +255,8 @@ def test_cli_dry_run_writes_nothing(google_v30, legacy_v21_gbk, copy_of):
     before = both.read_bytes()
     result = run(both, "--dry-run")
     assert result.exit_code == 0
-    assert result.stdout.count("Group ") == 7
-    assert "7 groups, 15 cards would be merged" in result.stderr
+    assert result.stdout.count("Group ") == 9
+    assert "9 groups, 19 cards would be merged" in result.stderr
     assert both.read_bytes() == before
 
 
@@ -250,15 +264,15 @@ def test_cli_merge_and_report(google_v30, legacy_v21_gbk, copy_of, tmp_path):
     both, report = merged_fixtures(google_v30, legacy_v21_gbk, copy_of), tmp_path / "report.csv"
     result = run(both, "--report", report)
     assert result.exit_code == 0, result.output
-    assert len(read_vcards(both)) == 55 + 79 - 15 + 7
+    assert len(read_vcards(both)) == 55 + 79 - 19 + 9
     rows = list(csv.DictReader(report.open(encoding="utf-8-sig")))
-    assert len(rows) == 15
-    assert {row["group"] for row in rows} == {str(n) for n in range(1, 8)}
+    assert len(rows) == 19
+    assert {row["group"] for row in rows} == {str(n) for n in range(1, 10)}
 
 
 def test_cli_interactive(google_v30, legacy_v21_gbk, copy_of):
     both = merged_fixtures(google_v30, legacy_v21_gbk, copy_of)
-    result = run(both, "-i", input="y\n" + "n\n" * 6)
+    result = run(both, "-i", input="y\n" + "n\n" * 8)
     assert result.exit_code == 0
     assert "Merged 2 cards into 1" in result.stderr  # only the first group: 蔡思 from each file
 
@@ -267,13 +281,13 @@ def test_cli_asks_by_default_only_at_a_terminal(legacy_v21_gbk, copy_of, monkeyp
     source = copy_of(legacy_v21_gbk)
     result = run(source)  # stdin is not a terminal here: merge without asking
     assert "Merge these?" not in result.stderr
-    assert "Merged 4 cards into 2" in result.stderr
+    assert "Merged 8 cards into 4" in result.stderr
     source = copy_of(legacy_v21_gbk)
     monkeypatch.setattr("vcardmanager.cli.at_terminal", lambda: True)
-    result = run(source, input="n\nn\n")
-    assert result.stderr.count("Merge these?") == 2
+    result = run(source, input="n\n" * 4)
+    assert result.stderr.count("Merge these?") == 4
     assert "Merged 0 cards into 0" in result.stderr
-    assert "Merged 4 cards into 2" in run(copy_of(legacy_v21_gbk), "--no-interactive").stderr
+    assert "Merged 8 cards into 4" in run(copy_of(legacy_v21_gbk), "--no-interactive").stderr
 
 
 def test_cli_interactive_refuses_stdin(legacy_v21_gbk):

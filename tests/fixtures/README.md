@@ -47,7 +47,7 @@ UIDs 208–211 were added as cross-file duplicates (see the table below). Quirks
   and `work-vendor-c` has no `X-MEMBERS` at all.
 - 2.1 bare parameters on a phone number: `TEL;CELL;PREF:15376400148` (UID 211).
 - Exact duplicates: UID 80/168 (`卢玉`) and 30/180 (`林博天`).
-- Near duplicates that must not be merged by default: `Clyde Mui` (62) and `Clyde Mui/HK` (87),
+- The same name with and without a label, matched by name: `Clyde Mui` (62) and `Clyde Mui/HK` (87),
   `Nina Bao/HK` (74) and `Nina Bao` (101).
 - `FN` that is just the email handle (`FN:caiyujie`), and `N:;handle`.
 - `FN` that is an email address (UID 194), and a card with no `FN` at all (UID 195).

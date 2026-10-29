@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from rapidfuzz.fuzz import token_sort_ratio
 
 from vcardmanager.dedupe.pinyin import han_pinyin_keys, latin_pinyin_keys
-from vcardmanager.keys import email_match_key, name_key, phone_key
+from vcardmanager.keys import email_match_key, name_key, name_label, phone_key
 from vcardmanager.model import VCard
 
 MATCH_KINDS = ("phone", "email", "name", "pinyin")
@@ -48,6 +48,8 @@ def find_duplicate_groups(
     """Groups of two or more cards linked by a shared key, in the order of their first card.
 
     Links are transitive: if A matches B and B matches C, all three are one group. Group cards never match.
+    Names match without their label (`王小明` = `王小明/Mkt`), unless two different labels show they are
+    different people (`王小明/Mkt`, `王小明/IT`).
     With `name_threshold` below 100, names whose token-sorted similarity reaches it also match, if both
     are at least `min_name_length` characters and start with the same character.
     `pinyin` links a Chinese name to the same name in Latin letters (`陈磊` = `Lei Chen`); see `_pinyin_links`.
@@ -74,9 +76,10 @@ def find_duplicate_groups(
     union = _UnionFind(len(cards))
     links: list[tuple[int, int, str]] = []
     for (kind, _), indexes in owners.items():
-        for other in indexes[1:]:
-            union.union(indexes[0], other)
-            links.append((indexes[0], other, kind))
+        for linked in _by_label(cards, indexes) if kind == "name" else [indexes]:
+            for other in linked[1:]:
+                union.union(linked[0], other)
+                links.append((linked[0], other, kind))
     if "pinyin" in kinds:
         links += _pinyin_links(cards, contacts, union)
     if "name" in kinds and name_threshold < 100:
@@ -93,6 +96,17 @@ def find_duplicate_groups(
         for root, indexes in sorted(members.items(), key=lambda item: item[1][0])
         if len(indexes) > 1
     ]
+
+
+def _by_label(cards: Sequence[VCard], indexes: list[int]) -> list[list[int]]:
+    """Cards with the same name: all of them if at most one label occurs, else only those with the same
+    label (one without a label could be any of them)."""
+    labels: dict[str, list[int]] = defaultdict(list)
+    for i in indexes:
+        labels[name_label(cards[i])].append(i)
+    if len(labels.keys() - {""}) <= 1:
+        return [indexes]
+    return list(labels.values())
 
 
 def _pinyin_links(cards: Sequence[VCard], contacts: list[int], union: _UnionFind) -> list[tuple[int, int, str]]:
@@ -129,7 +143,8 @@ def _fuzzy_name_links(
     for block in blocks.values():
         for n, (a, key_a) in enumerate(block):
             for b, key_b in block[n + 1 :]:
-                if key_a != key_b and token_sort_ratio(key_a, key_b) >= threshold:
+                labels = {name_label(cards[a]), name_label(cards[b])} - {""}
+                if key_a != key_b and len(labels) <= 1 and token_sort_ratio(key_a, key_b) >= threshold:
                     union.union(a, b)
                     links.append((a, b, "similar name"))
     return links

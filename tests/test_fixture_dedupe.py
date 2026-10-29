@@ -21,7 +21,12 @@ def uid_groups(groups):
 
 def test_legacy_exact_duplicates(legacy_v21_gbk):
     groups = dedupe.find_duplicates(vcardmanager.read_vcards(legacy_v21_gbk))
-    assert uid_groups(groups) == {frozenset({"80", "168"}), frozenset({"30", "180"})}
+    assert uid_groups(groups) == {
+        frozenset({"80", "168"}),
+        frozenset({"30", "180"}),
+        frozenset({"62", "87"}),  # Clyde Mui and Clyde Mui/HK: the name without its label
+        frozenset({"74", "101"}),  # Nina Bao/HK and Nina Bao
+    }
 
 
 def test_cross_file_duplicates(google_v30, legacy_v21_gbk):
@@ -35,14 +40,16 @@ def test_cross_file_duplicates(google_v30, legacy_v21_gbk):
         frozenset({"208", GOOGLE_XIAO_QINGQIANG}),  # email; legacy FN is only the handle
         frozenset({"209", GOOGLE_JOY_YANG}),  # email differs only in case
         frozenset({"210", GOOGLE_SONG_PINGGUO}),  # second email; legacy FN has a suffix
+        frozenset({"62", "87"}),  # within legacy: the name without its /HK label
+        frozenset({"74", "101"}),
     }
 
 
 def test_near_duplicates_not_merged_by_default(google_v30, legacy_v21_gbk):
     cards = vcardmanager.read_vcards([google_v30, legacy_v21_gbk])
     grouped = set().union(*uid_groups(dedupe.find_duplicates(cards)))
-    # Clyde Mui vs Clyde Mui/HK, Nina Bao/HK vs Nina Bao, 陈磊 vs Lei Chen
-    for not_expected in ("62", "87", "74", "101", "205", GOOGLE_CHEN_LEI):
+    # 陈磊 vs Lei Chen: only with pinyin matching
+    for not_expected in ("205", GOOGLE_CHEN_LEI):
         assert not_expected not in grouped
 
 

@@ -50,12 +50,21 @@ def email_match_key(value: str) -> str | None:
 
 
 def name_key(card: VCard) -> str | None:
-    """FN, normalized: compatibility forms folded, case ignored, words sorted (`Lee Ann` = `ann lee`)."""
+    """FN without its label (see `name_label`), normalized: compatibility forms folded, case ignored, words
+    sorted (`Lee Ann` = `ann lee`)."""
     fn = card.get("FN")
     if fn is None:
         return None
-    text = unicodedata.normalize("NFKC", fn.value).casefold()
+    text = unicodedata.normalize("NFKC", fn.value.split("/", 1)[0]).casefold()
     words = text.split()
     if not words or "@" in text or not any(ch.isalpha() for ch in text):
         return None  # empty, an email address, or a phone number standing in for a name
     return " ".join(sorted(words))
+
+
+def name_label(card: VCard) -> str:
+    """The label after a slash in FN (`王小明/Mkt` → `mkt`), normalized; empty without one."""
+    fn = card.get("FN")
+    if fn is None or "/" not in fn.value:
+        return ""
+    return " ".join(unicodedata.normalize("NFKC", fn.value.split("/", 1)[1]).casefold().split())

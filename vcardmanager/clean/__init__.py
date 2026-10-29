@@ -60,7 +60,7 @@ RULES = [
     Rule("photo-embed", "Download photo links and embed the images (uses the network, can be slow)", False, photo_embed),
     Rule("photo-compression", "Shrink embedded photos larger than --photo-max-px to JPEG", True, photo_compression),
     # layout
-    Rule("sort-properties", "Write properties in a fixed, readable order", True, sort_properties),
+    Rule("sort-properties", "Write properties in a fixed, readable order", False, sort_properties),
 ]
 RULES_BY_NAME = {rule.name: rule for rule in RULES}
 DEFAULT_RULES = frozenset(rule.name for rule in RULES if rule.default)

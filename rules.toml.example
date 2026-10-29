@@ -24,11 +24,11 @@
 # backup = true                  # keep a copy, e.g. contacts_backup.vcf
 # region = "CN"                  # country for phone numbers without a country code
 # phone-format = "e164"          # e164, international or national
-# Rules (see `clean --list-rules`). Off by default: groups-to-categories, photo-embed.
+# Rules (see `clean --list-rules`). Off by default: groups-to-categories, photo-embed, sort-properties.
 # On by default: fix-encoding, fix-escapes, upgrade-version, trim-whitespace, drop-empty, drop-extensions, email-lowercase,
 # phone-format, phone-type, type-normalize, dedupe-values, name-fill, name-label, name-prefix, name-split, name-case,
-# photo-compression, sort-properties.
-# enable = ["photo-embed"]
+# photo-compression.
+# enable = ["photo-embed", "sort-properties"]
 # disable = ["drop-extensions", "name-case"]   # keep X- fields, e.g. for iCloud/macOS
 # photo-timeout = 10.0           # seconds per photo download
 # photo-max-px = 512             # longest side of embedded photos

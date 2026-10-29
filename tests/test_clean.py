@@ -33,7 +33,7 @@ def test_resolve_order_and_dependencies():
 
 def test_defaults_match_readme():
     off = {r.name for r in RULES if not r.default}
-    assert off == {"groups-to-categories", "photo-embed"}  # groups-to-categories runs with drop-extensions
+    assert off == {"groups-to-categories", "photo-embed", "sort-properties"}  # groups-to-categories runs with drop-extensions
     assert DEFAULT_RULES == {r.name for r in RULES} - off
 
 

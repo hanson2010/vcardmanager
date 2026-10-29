@@ -89,7 +89,7 @@ python -m vcardmanager clean --list-rules
 | `name-case` | on | English surnames in capitals: `John Smith`, `JOHN SMITH` → `John SMITH`. Leaves Chinese surnames, single words (`IBM`) and handles like `lin_shan` alone |
 | `photo-embed` | off | Download photo links and embed the photos (slow; prints each download) |
 | `photo-compression` | on | Shrink embedded photos larger than `--photo-max-px` (512) to JPEG (`--photo-quality`, 85), if that makes them smaller |
-| `sort-properties` | on | Put fields in a readable order |
+| `sort-properties` | off | Put fields in a readable order |
 
 How names are split into `N` (family;given;…;suffix). English mode applies when there are both an English
 surname and an English given name: anything else (e.g. a Chinese name) goes before the English given name.
@@ -133,7 +133,8 @@ python -m vcardmanager dedupe all.vcf --ignore-phone "+86 10 5765 0000"   # a sh
 
 Each file is deduplicated on its own; `merge` first to find duplicates across files.
 Contacts are the same person if they share a **phone number** (`+86 138…` = `138…`), an **email**
-(`user@example.com` = `user@example.com.cn`) or the exact **name**. `--match phone,email` picks which; `--name-threshold 90` also matches similar names.
+(`user@example.com` = `user@example.com.cn`) or the exact **name**, with or without a label
+(`王小明` = `王小明/Mkt`; `王小明/Mkt` and `王小明/IT` stay apart). `--match phone,email` picks which; `--name-threshold 90` also matches similar names.
 `--match phone,email,name,pinyin` also matches a Chinese name with its pinyin (`陈磊` = `Lei Chen`, `CHEN Lei`);
 a spelling that fits two Chinese names in the file (`陈磊`, `陈雷`) matches neither.
 
